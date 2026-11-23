@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
+    <title>Şarj İstasyonu Yönetim Sistemi</title>
+    <link rel="icon" type="image/svg+xml" href="./assets/continoos_symbol_micro_anthracite.svg">
+    <style>
+        @font-face {
+            font-family: Montserrat;
+            src: url("./assets/Montserrat-wght.ttf") format("truetype");
+            font-weight: 100 900;
+            font-display: swap;
+        }
+
+        :root {
+            color-scheme: dark;
+            --text: #f0f4f7;
+            --surface: #18242e;
+            --canvas: #101921;
+            --masthead: #0b1218;
+            --input: #111b24;
+            --muted: #aab8c4;
+            --border: #354550;
+            --accent: #a8cedf;
+            --chart: #9fc7da;
+            --chart-missing: #536470;
+            --background-purple: #5b2ccf;
+            --background-orange: #ff7a3d;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            isolation: isolate;
+            background: var(--canvas);
+            color: var(--text);
+            font: 500 14px/1.55 Montserrat, system-ui, sans-serif;
+        }
+
+        /* Background from the Continoos web page, fixed behind the dashboard. */
+        body::before, body::after {
+            content: "";
+            position: fixed;
+            inset: 0;
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        body::before {
+            background:
+                radial-gradient(ellipse at 92% 0%, var(--background-purple), transparent 65%),
+                radial-gradient(ellipse at 0% 100%, var(--background-orange), transparent 55%);
+            opacity: .2;
+        }
+
+        body::after {
+            background-image:
+                linear-gradient(rgb(255 255 255 / 13%) 1px, transparent 1px),
+                linear-gradient(90deg, rgb(255 255 255 / 13%) 1px, transparent 1px);
+            background-size: 72px 72px;
+            mask-image: linear-gradient(to bottom, black, transparent 82%);
+            opacity: .24;
+        }
+
+        .masthead {
+            background: var(--masthead);
+            color: var(--text);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .masthead-inner,
+        main {
+            width: min(100% - 48px, 1240px);
+            margin-inline: auto;
+        }
+
+        .masthead-inner {
+            min-height: 112px;
+            display: flex;
+            align-items: center;
+            gap: 28px;
+            padding-block: 20px;
+        }
+
+        .brand-logo {
+            display: block;
+            width: 261px;
+            height: 32px;
+        }
+
+        .masthead h1 {
+            margin: 0;
+            padding-inline-start: 28px;
+            border-inline-start: 1px solid var(--border);
+            font-size: clamp(17px, 2vw, 23px);
+            font-weight: 600;
+        }
+
+        main { padding-bottom: 48px; }
+
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: end;
+            gap: 16px;
+        }
+
+        .controls label {
+            display: grid;
+            gap: 6px;
+            min-width: 0;
+            font-weight: 600;
+        }
+
+        select, input, button { font: inherit; }
+
+        select, input[type="date"] {
+            min-height: 42px;
+            max-width: 100%;
+            padding: 7px 12px;
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            background: var(--input);
+            color: var(--text);
+        }
+
+        select:focus-visible, input:focus-visible, button:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 3px;
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+            gap: 16px;
+        }
+
+        .card, .info {
+            min-width: 0;
+            padding: clamp(16px, 2.2vw, 26px);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: var(--surface);
+        }
+
+        .card h3, .info h2 {
+            margin: 0 0 12px;
+            font-weight: 600;
+        }
+
+        .card h3 { font-size: 14px; }
+        .info h2 { font-size: 18px; }
+
+        .card p, .info p, .muted {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .card p:last-child, .info p:last-child { margin-bottom: 0; }
+
+        .value {
+            font-size: clamp(24px, 3vw, 36px);
+            line-height: 1.2;
+            font-weight: 650;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .info, #solar-panel { margin-top: 18px; }
+        .charger-table-scroll { overflow-x: auto; }
+        .charger-table { width: 100%; border-collapse: collapse; }
+        .charger-table th, .charger-table td {
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+            text-align: start;
+            white-space: nowrap;
+            font-variant-numeric: tabular-nums;
+        }
+        .charger-table thead th { color: var(--muted); }
+        .charger-table .numeric { text-align: end; }
+        .charger-table .stale { color: var(--muted); }
+        #meter-panel > .controls, #load-controls { margin-bottom: 18px; }
+        #selection-status:empty { display: none; }
+
+        .hourly-chart {
+            display: flex;
+            align-items: start;
+            gap: 8px;
+            min-height: 210px;
+            padding-top: 10px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .hour-axis {
+            position: relative;
+            flex: 0 0 86px;
+            height: 175px;
+            color: var(--muted);
+            font-size: 11px;
+        }
+
+        .hour-axis span {
+            position: absolute;
+            inset-inline-end: 0;
+            transform: translateY(-50%);
+            white-space: nowrap;
+        }
+
+        .hour-scroll {
+            flex: 1;
+            min-width: 0;
+            overflow-x: auto;
+        }
+
+        .hour-plot {
+            position: relative;
+            display: flex;
+            gap: 6px;
+            min-width: max(100%, calc(var(--hours) * 37px));
+        }
+
+        .hour-grid {
+            position: absolute;
+            inset: 0 0 auto;
+            height: 175px;
+            border-inline-start: 1px solid var(--border);
+            pointer-events: none;
+        }
+
+        .hour-grid span {
+            position: absolute;
+            inset-inline: 0;
+            border-top: 1px solid var(--border);
+        }
+
+        .hour-column {
+            position: relative;
+            min-width: 31px;
+            flex: 1;
+            color: var(--muted);
+            text-align: center;
+            font-size: 11px;
+        }
+
+        .hour-track {
+            display: flex;
+            align-items: end;
+            justify-content: center;
+            height: 175px;
+        }
+
+        .hour-bar {
+            width: 82%;
+            border-radius: 4px 4px 0 0;
+            background: var(--chart);
+        }
+
+        .hour-bar.missing { background: var(--chart-missing); }
+
+        main svg text { fill: var(--muted); }
+        main svg .chart-guide { stroke: var(--border); }
+        .trend-chart { overflow-x: auto; }
+        .trend-chart svg {
+            display: block;
+            width: 100%;
+            min-width: 520px;
+            height: auto;
+        }
+
+        .tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px 16px;
+            margin: 22px 0 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .tabs button {
+            padding: 10px 4px;
+            border: 0;
+            border-bottom: 3px solid transparent;
+            background: transparent;
+            color: var(--muted);
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .tabs button:hover { color: var(--text); }
+
+        .tabs button[aria-pressed="true"] {
+            border-bottom-color: var(--accent);
+            color: var(--text);
+        }
+
+        @media (max-width: 600px) {
+            .masthead-inner, main { width: calc(100% - 28px); }
+            .masthead-inner { flex-wrap: wrap; gap: 10px; }
+            .masthead h1 { flex-basis: 100%; padding: 0; border: 0; }
+            .controls label { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+
+<header class="masthead">
+    <div class="masthead-inner">
+        <img class="brand-logo" src="./assets/continoos_horizontal_white.svg"
+             alt="Continoos" width="261" height="32">
+        <h1>Şarj İstasyonu Yönetim Sistemi</h1>
+    </div>
+</header>
+
+<main><p class="info" role="note">Demo &middot; Sim&uuml;le edilmi&#351; veriler</p>
+    <nav class="tabs" aria-label="Dashboard görünümleri">
+        <button type="button" aria-controls="site-panel" aria-pressed="true">Tesis Özeti</button>
+        <button type="button" aria-controls="meter-panel" aria-pressed="false">Sayaç Ayrıntıları</button>
+        <button type="button" aria-controls="chargers-panel" aria-pressed="false">DC Şarj Noktaları</button>
+        <button type="button" aria-controls="solar-detail-panel" aria-pressed="false">Güneş Panelleri</button>
+        <button type="button" aria-controls="grid-panel" aria-pressed="false">Şebeke Bağlantısı</button>
+    </nav>
+
+    <section id="site-panel" aria-label="Tesis özeti">
+        <section class="cards">
+            <div class="card">
+                <h3>Tesis Günlük Toplam Tüketimi</h3>
+                <div class="value" id="site-energy">-- kWh</div>
+                <p id="site-energy-status"></p>
+            </div>
+            <div class="card">
+                <h3>Tesis Anlık Toplam Gücü</h3>
+                <div class="value" id="site-power">-- kW</div>
+                <p id="site-power-status"></p>
+            </div>
+        </section>
+        <section id="solar-panel" aria-label="Güneş enerjisi" hidden>
+            <div class="cards">
+                <div class="card">
+                    <h3>Günlük Güneş Üretimi</h3>
+                    <div class="value" id="solar-energy">-- kWh</div>
+                    <p id="solar-energy-status"></p>
+                </div>
+                <div class="card">
+                    <h3>Anlık Güneş Üretimi</h3>
+                    <div class="value" id="solar-power">-- kW</div>
+                    <p id="solar-power-status"></p>
+                </div>
+                <div class="card">
+                    <h3>Tesis Anlık Net Gücü</h3>
+                    <div class="value" id="net-power">-- kW</div>
+                    <p id="net-power-status"></p>
+                </div>
+            </div>
+        </section>
+        <section class="info">
+            <h2>Tesis Toplam Aktif Güç Trendi</h2>
+            <p>Son 30 dakika · 30 saniyelik aralıklar</p>
+            <div id="site-power-trend"></div>
+        </section>
+        <section class="info">
+            <h2>Tesis Saatlik Enerji Tüketimi</h2>
+            <div id="site-hourly" class="hourly-chart"></div>
+            <p id="site-hourly-status"></p>
+        </section>
+    </section>
+
+    <section id="chargers-panel" aria-label="DC şarj noktaları" hidden>
+        <section class="info">
+            <h2>DC Şarj Noktalarının Anlık Ölçümleri</h2>
+            <p id="chargers-status" role="status"></p>
+            <div class="charger-table-scroll">
+                <table class="charger-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Şarj noktası</th>
+                            <th scope="col">Araç plakası</th>
+                            <th scope="col" class="numeric">Araç azami şarj gücü (kW)</th>
+                            <th scope="col" class="numeric">Gerilim (V)</th>
+                            <th scope="col" class="numeric">Akım (A)</th>
+                            <th scope="col" class="numeric">Aktif güç (kW)</th>
+                            <th scope="col">Son ölçüm</th>
+                        </tr>
+                    </thead>
+                    <tbody id="chargers-rows"></tbody>
+                </table>
+            </div>
+        </section>
+    </section>
+
+    <section id="grid-panel" aria-label="Şebeke bağlantısı" hidden>
+        <section class="cards">
+            <div class="card">
+                <h3>Şebekeden Anlık Çekilen Güç</h3>
+                <div class="value" id="grid-power">-- kW</div>
+                <p id="grid-power-status"></p>
+            </div>
+            <div class="card">
+                <h3>Şebekeden Alınan Günlük Enerji</h3>
+                <div class="value" id="grid-energy">-- kWh</div>
+                <p id="grid-coverage"></p>
+            </div>
+        </section>
+        <section class="info">
+            <h2>Şebekeden Alınan Saatlik Enerji</h2>
+            <div id="grid-hourly-energy" class="hourly-chart"></div>
+        </section>
+        <section class="info">
+            <h2>Şebekeden Çekilen Saatlik Ortalama Güç</h2>
+            <div id="grid-hourly-power" class="hourly-chart"></div>
+            <p>Ortalamalar, ölçüm bulunan süre üzerinden hesaplanır. Gri aralıklar veri boşluğudur.</p>
+        </section>
+    </section>
+
+    <section id="solar-detail-panel" aria-label="Güneş panelleri" hidden>
+        <section class="cards">
+            <div class="card">
+                <h3>Anlık Güneş Üretimi</h3>
+                <div class="value" id="solar-detail-power">-- kW</div>
+            </div>
+            <div class="card">
+                <h3>Günlük Güneş Üretimi</h3>
+                <div class="value" id="solar-detail-energy">-- kWh</div>
+            </div>
+        </section>
+        <p id="solar-detail-status" role="status"></p>
+        <section class="info">
+            <h2>Güneş Üretim Gücü</h2>
+            <p>Son 30 dakika · 30 saniyelik aralıklar</p>
+            <div id="solar-power-trend"></div>
+        </section>
+        <section class="info">
+            <h2>Saatlik Güneş Enerjisi Üretimi</h2>
+            <div id="solar-hourly" class="hourly-chart"></div>
+            <p id="solar-hourly-status"></p>
+        </section>
+    </section>
+
+    <section id="meter-panel" aria-label="Sayaç ve yük ayrıntıları" hidden>
+    <section class="info controls">
+        <label for="meter-select">Sayaç
+            <select id="meter-select" disabled></select>
+        </label>
+        <label for="selected-day">Rapor tarihi (UTC)
+            <input type="date" id="selected-day">
+        </label>
+    </section>
+    <section id="load-controls" class="info" hidden>
+        <label for="load-select">Yardımcı yük</label>
+        <select id="load-select" disabled></select>
+    </section>
+    <p id="selection-status" class="muted" role="status"></p>
+    <section class="cards">
+        <div class="card">
+            <h3>Sayaç Toplam Aktif Gücü</h3>
+            <div class="value" id="power">-- kW</div>
+        </div>
+
+        <div class="card">
+            <h3>Günlük Enerji Tüketimi</h3>
+            <div class="value" id="energy">-- kWh</div>
+<div id="coverage-status" class="muted">
+    Veri kapsama oranı hesaplanıyor...
+</div>
+
+        </div>
+
+        <div class="card">
+            <h3>Gerilim</h3>
+            <div class="value" id="voltage">-- V</div>
+        </div>
+
+        <div class="card">
+            <h3>Akım</h3>
+            <div class="value" id="current">-- A</div>
+        </div>
+    </section>
+
+
+
+<section class="info">
+    <h2>Saatlik Enerji Tüketimi</h2>
+
+    <p>Seçilen günün saatlik tüketimi (UTC)</p>
+
+    <div id="hourly-chart" class="hourly-chart">
+        Grafik yükleniyor...
+    </div>
+
+    <p id="chart-status" class="muted"></p>
+</section>
+
+
+<section class="info">
+    <h2>Anlık Güç Trendi</h2>
+    <p>Son 30 dakikanın aktif güç ölçümleri</p>
+
+    <div id="power-trend"
+         style="height:260px;overflow-x:auto;">
+        Grafik yükleniyor...
+    </div>
+
+    <p id="power-trend-status" class="muted"></p>
+</section>
+
+<section class="info">
+    <h2>Veri Bağlantı Durumu</h2>
+    <p id="connection-status">Kontrol ediliyor...</p>
+    <p id="last-measurement" class="muted"></p>
+</section>
+
+<section id="load-details" class="info" hidden>
+    <h2>Yardımcı Yük Güç Trendi</h2>
+    <div id="load-power"></div>
+    <h2>Yükün Saatlik Enerji Tüketimi</h2>
+    <div id="load-energy" class="hourly-chart"></div>
+    <p id="load-energy-status"></p>
+</section>
+    </section>
+</main>
+
+
+<script src="./demo-data.js"></script>
+<script>
+const element = id => document.getElementById(id);
+const meterSelect = element("meter-select");
+const loadSelect = element("load-select");
+const daySelect = element("selected-day");
+const today = () => new Date().toISOString().slice(0, 10);
+daySelect.value = today();
+
+let selection;
+let refresh;
+let displayedScope;
+
+function formatNumber(value, digits = 1) {
+    return value == null ? "--" : Number(value).toLocaleString("tr-TR", {
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits
+    });
+}
+
+async function fetchData(url, signal) {
+    return window.dashboardDemo.fetchData(url, signal);
+}
+
+function chartScale(min, max) {
+    const roughStep = (max - min) / 5;
+    const magnitude = 10 ** Math.floor(Math.log10(roughStep));
+    const step = [1, 2, 2.5, 5, 10].find(factor => factor >= roughStep / magnitude) * magnitude;
+    const lower = Math.floor(min / step) * step;
+    const upper = Math.ceil(max / step) * step;
+    const count = Math.round((upper - lower) / step);
+    return { lower, upper, ticks: Array.from({ length: count + 1 }, (_, i) => lower + i * step) };
+}
+
+function axisLabel(value, unit) {
+    return value.toLocaleString("tr-TR", { maximumFractionDigits: 6 }) + " " + unit;
+}
+
+function renderHourly(chartId, statusId, data, metric = "tüketim",
+    valueField = "consumption_kwh", unit = "kWh") {
+    const chart = element(chartId);
+    const scrollLeft = chart.querySelector(".hour-scroll")?.scrollLeft ?? 0;
+    chart.replaceChildren();
+    const max = Math.max(0, ...data.hours.map(hour => hour[valueField] ?? 0));
+    const { upper, ticks } = chartScale(0, max || 1);
+    const axis = document.createElement("div");
+    axis.className = "hour-axis";
+    axis.setAttribute("aria-label", `Düşey eksen (${unit})`);
+    const scroll = document.createElement("div");
+    scroll.className = "hour-scroll";
+    scroll.tabIndex = 0;
+    const plot = document.createElement("div");
+    plot.className = "hour-plot";
+    plot.style.setProperty("--hours", data.hours.length);
+    const grid = document.createElement("div");
+    grid.className = "hour-grid";
+    grid.setAttribute("aria-hidden", "true");
+    for (const value of ticks) {
+        const top = (1 - value / upper) * 100 + "%";
+        const mark = document.createElement("span");
+        mark.style.top = top;
+        mark.textContent = axisLabel(value, unit);
+        axis.append(mark);
+        const guide = document.createElement("span");
+        guide.style.top = top;
+        grid.append(guide);
+    }
+    plot.append(grid);
+    for (const hour of data.hours) {
+        const value = hour[valueField];
+        const column = document.createElement("div");
+        column.className = "hour-column";
+        const bar = document.createElement("div");
+        bar.style.height = value === null ? "4px" : Math.max(2, value / upper * 175) + "px";
+        bar.className = value === null ? "hour-bar missing" : "hour-bar";
+        bar.title = value === null
+            ? "Veri yok"
+            : `${formatNumber(value, 3)} ${unit} · Kapsama %${formatNumber(hour.coverage_percent)}`;
+        const label = document.createElement("div");
+        label.textContent = hour.hour.slice(11, 13);
+        const track = document.createElement("div");
+        track.className = "hour-track";
+        track.append(bar);
+        column.append(track, label);
+        plot.append(column);
+    }
+    scroll.append(plot);
+    chart.append(axis, scroll);
+    scroll.scrollLeft = scrollLeft;
+    if (statusId) {
+        element(statusId).textContent = data.status === "no_data"
+            ? `Bu tarih için ${metric} verisi yok.`
+            : `Doğrulanan ${metric} ${formatNumber(data.total_consumption_kwh, 2)} kWh · Veri olmayan saatler gri.`;
+    }
+}
+
+function renderTrend(id, rows, maxGapMs = 60000) {
+    const chart = element(id);
+    chart.classList.add("trend-chart");
+    chart.replaceChildren();
+    const samples = rows.filter(row => row.active_power_kw !== null);
+    if (!samples.length) {
+        chart.textContent = "Son 30 dakikada güç ölçümü yok.";
+        return;
+    }
+
+    const svgNamespace = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNamespace, "svg");
+    svg.setAttribute("viewBox", "0 0 900 230");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", "Son 30 dakikanın aktif güç grafiği");
+    const end = Date.now();
+    const min = Math.min(0, ...samples.map(row => row.active_power_kw));
+    const max = Math.max(0, ...samples.map(row => row.active_power_kw));
+    const { lower, upper, ticks } = chartScale(min, max || (min === 0 ? 1 : 0));
+    const xStart = 85;
+    const xEnd = 875;
+    const toY = value => 200 - (value - lower) / (upper - lower) * 175;
+    const axis = document.createElementNS(svgNamespace, "line");
+    axis.setAttribute("class", "chart-guide");
+    axis.setAttribute("x1", xStart);
+    axis.setAttribute("x2", xStart);
+    axis.setAttribute("y1", toY(upper));
+    axis.setAttribute("y2", toY(lower));
+    svg.append(axis);
+    for (const value of ticks) {
+        const y = toY(value);
+        const guide = document.createElementNS(svgNamespace, "line");
+        guide.setAttribute("class", "chart-guide");
+        guide.setAttribute("x1", xStart);
+        guide.setAttribute("x2", xEnd);
+        guide.setAttribute("y1", y);
+        guide.setAttribute("y2", y);
+        const label = document.createElementNS(svgNamespace, "text");
+        label.setAttribute("x", xStart - 8);
+        label.setAttribute("y", y);
+        label.setAttribute("text-anchor", "end");
+        label.setAttribute("dominant-baseline", "middle");
+        label.setAttribute("font-size", "13");
+        label.textContent = axisLabel(value, "kW");
+        svg.append(guide, label);
+    }
+
+    let previousTime = -Infinity;
+    let segment;
+    for (const row of samples) {
+        const timestamp = Date.parse(row.timestamp);
+        if (timestamp - previousTime > maxGapMs) {
+            segment = document.createElementNS(svgNamespace, "path");
+            segment.setAttribute("fill", "none");
+            segment.setAttribute("stroke", "var(--chart)");
+            segment.setAttribute("stroke-width", "2");
+            svg.append(segment);
+        }
+        const progress = Math.max(0, Math.min(1, 1 - (end - timestamp) / 1800000));
+        const x = xStart + progress * (xEnd - xStart);
+        const y = toY(row.active_power_kw);
+        const path = segment.getAttribute("d");
+        segment.setAttribute("d", path ? `${path} L${x},${y}` : `M${x},${y} h0.5`);
+        previousTime = timestamp;
+    }
+    chart.append(svg);
+}
+
+function renderChargers(chargers) {
+    const rows = element("chargers-rows");
+    rows.replaceChildren();
+    const now = Date.now();
+    let freshCount = 0;
+    for (const charger of chargers ?? []) {
+        const timestamp = charger.timestamp ? new Date(charger.timestamp) : null;
+        const fresh = timestamp !== null && now - timestamp.getTime() <= 30000;
+        if (fresh) freshCount++;
+        const row = document.createElement("tr");
+        row.classList.toggle("stale", !fresh);
+        const name = document.createElement("th");
+        name.scope = "row";
+        name.textContent = charger.name;
+        row.append(name);
+        const plate = document.createElement("td");
+        plate.textContent = fresh ? charger.vehicle_plate ?? "—" : "—";
+        row.append(plate);
+        for (const value of [charger.vehicle_max_charging_kw, charger.voltage_v,
+            charger.current_a, charger.active_power_kw]) {
+            const cell = document.createElement("td");
+            cell.className = "numeric";
+            cell.textContent = formatNumber(fresh ? value : null);
+            row.append(cell);
+        }
+        const time = document.createElement("td");
+        time.textContent = timestamp
+            ? timestamp.toLocaleString("tr-TR") + (fresh ? "" : " · Güncel değil")
+            : "Ölçüm yok";
+        row.append(time);
+        rows.append(row);
+    }
+    element("chargers-status").textContent = !chargers
+        ? "Şarj noktası ölçümleri alınamadı."
+        : !chargers.length ? "Bu tesiste DC şarj noktası yok."
+        : `${freshCount}/${chargers.length} şarj noktasında son 30 saniyeye ait ölçüm var.`;
+}
+
+async function updateDashboard() {
+    if (!meterSelect.value || meterSelect.disabled) return;
+    refresh?.abort();
+    const { signal } = refresh = new AbortController();
+    const meter = `/api/v1/meters/${meterSelect.value}`;
+    const load = loadSelect.value ? `${meter}/loads/${loadSelect.value}` : null;
+    const day = daySelect.value || today();
+    const scope = `${meter}|${load}|${day}`;
+    if (displayedScope !== scope) {
+        displayedScope = scope;
+        element("chargers-rows").replaceChildren();
+        element("chargers-status").textContent = "Ölçümler yükleniyor…";
+        for (const id of ["power", "voltage", "current", "energy", "coverage-status",
+            "site-energy", "site-energy-status", "site-power", "site-power-status",
+            "site-hourly", "site-hourly-status", "site-power-trend",
+            "solar-energy", "solar-energy-status", "solar-power", "solar-power-status",
+            "net-power", "net-power-status",
+            "solar-detail-energy", "solar-detail-power", "solar-detail-status",
+            "solar-power-trend", "solar-hourly", "solar-hourly-status",
+            "grid-power", "grid-power-status", "grid-energy", "grid-coverage",
+            "grid-hourly-energy", "grid-hourly-power",
+            "last-measurement", "hourly-chart", "chart-status", "power-trend",
+            "load-power", "load-energy", "load-energy-status"]) {
+            element(id).textContent = "—";
+        }
+        element("connection-status").textContent = "Ölçümler yükleniyor…";
+    }
+    const end = new Date();
+    const start = new Date(end.getTime() - 1800000);
+    const range = new URLSearchParams({ start: start.toISOString(), end: end.toISOString() });
+    const report = new URLSearchParams({ day, tz: "UTC" });
+    const siteId = meterSelect.selectedOptions[0].dataset.siteId;
+    const requests = [
+        fetchData(`${meter}/latest`, signal, true),
+        fetchData(`${meter}/daily-consumption?${report}`, signal),
+        fetchData(`${meter}/hourly-consumption?${report}`, signal),
+        fetchData(`${meter}/history?${range}`, signal),
+        fetchData(`/api/v1/sites/${siteId}/daily-consumption?${report}`, signal),
+        fetchData(`/api/v1/sites/${siteId}/power-history`, signal),
+        fetchData(`/api/v1/sites/${siteId}/power-history?direction=generation`, signal),
+        fetchData(`/api/v1/sites/${siteId}/grid-import?day=${encodeURIComponent(day)}`, signal),
+        fetchData(`/api/v1/sites/${siteId}/dc-chargers/latest`, signal),
+    ];
+    if (load) {
+        requests.push(
+            fetchData(`${load}/history?${range}`, signal),
+            fetchData(`${load}/hourly-consumption?${report}`, signal)
+        );
+    }
+
+    const [latest, daily, hourly, trend, siteDaily, siteTrend, solarTrend,
+        gridReport, chargers, loadTrend, loadHourly] =
+        await Promise.allSettled(requests);
+    if (signal.aborted) return;
+    renderChargers(chargers.value);
+    const measurement = latest.value;
+    element("power").textContent = formatNumber(measurement?.active_power_kw) + " kW";
+    element("voltage").textContent = formatNumber(measurement?.voltage_v) + " V";
+    element("current").textContent = formatNumber(measurement?.current_a) + " A";
+    element("energy").textContent = formatNumber(daily.value?.consumption_kwh, 2) + " kWh";
+    const site = siteDaily.value;
+    const grid = gridReport.value;
+    const gridPower = site?.net_power_kw == null ? null : Math.max(0, site.net_power_kw);
+    element("grid-power").textContent = formatNumber(gridPower) + " kW";
+    element("grid-power-status").textContent = gridPower === null
+        ? "Hesaplama için güncel sayaç ölçümleri eksik."
+        : site.net_power_kw < 0 ? "Tesis şebekeye enerji veriyor."
+        : "Güncel sayaç ölçümlerinden hesaplandı.";
+    element("grid-energy").textContent = formatNumber(grid?.import_kwh, 2) + " kWh";
+    element("grid-coverage").textContent = !grid
+        ? "Şebeke raporu alınamadı."
+        : grid.import_kwh === null ? `${day} (UTC) · Veri yok`
+        : `${day} (UTC) · Veri kapsama oranı %${formatNumber(grid.coverage_percent, 2)}`;
+    if (grid) {
+        renderHourly("grid-hourly-energy", null, grid, "enerji", "import_kwh");
+        renderHourly("grid-hourly-power", null, grid, "güç", "average_import_kw", "kW");
+    } else {
+        element("grid-hourly-energy").textContent = "Saatlik enerji verileri alınamadı.";
+        element("grid-hourly-power").textContent = "Saatlik güç verileri alınamadı.";
+    }
+    element("site-energy").textContent = formatNumber(site?.consumption_kwh, 2) + " kWh";
+    element("site-energy-status").textContent = site
+        ? `${site.site_name} · ${day} (UTC) · ${site.meters_with_data}/${site.meter_count} sayaçta veri`
+            + (site.meters_with_data === 0 ? " · Veri yok"
+                : site.complete_meters < site.meter_count ? " · Kısmi veri" : "")
+        : "Tesis tüketimi alınamadı.";
+    element("site-power").textContent = formatNumber(site?.active_power_kw) + " kW";
+    element("site-power-status").textContent = site
+        ? `${site.meters_with_live_power}/${site.meter_count} sayaçtan son 30 saniyede güç ölçümü`
+        : "Tesis gücü alınamadı.";
+    element("solar-panel").hidden = !site?.generation_meter_count;
+    element("solar-detail-power").textContent = formatNumber(site?.generation_kw) + " kW";
+    element("solar-detail-energy").textContent = formatNumber(site?.generation_kwh, 2) + " kWh";
+    element("solar-detail-status").textContent = !site
+        ? "Güneş üretimi alınamadı."
+        : !site.generation_meter_count ? "Bu tesise bağlı güneş paneli yok."
+        : `${site.site_name} · ${day} (UTC) · ${site.generation_meters_with_live_power}/${site.generation_meter_count} üretim sayacında güncel ölçüm`;
+    if (solarTrend.value) {
+        renderTrend("solar-power-trend", solarTrend.value.measurements, 30000);
+    } else {
+        element("solar-power-trend").textContent = "Üretim güç geçmişi alınamadı.";
+    }
+    if (site) {
+        renderHourly("solar-hourly", "solar-hourly-status", {
+            hours: site.generation_hours,
+            total_consumption_kwh: site.generation_kwh,
+            status: site.generation_kwh === null ? "no_data" : "partial_data",
+        }, "üretim");
+    } else {
+        element("solar-hourly").replaceChildren();
+        element("solar-hourly-status").textContent = "Saatlik üretim verileri alınamadı.";
+    }
+    if (site?.generation_meter_count) {
+        element("solar-energy").textContent = formatNumber(site.generation_kwh, 2) + " kWh";
+        element("solar-energy-status").textContent = site.generation_kwh === null
+            ? "Bu tarih için üretim verisi yok."
+            : `${day} (UTC) · Ölçülen üretim`;
+        element("solar-power").textContent = formatNumber(site.generation_kw) + " kW";
+        element("solar-power-status").textContent = site.generation_kw === null
+            ? "Güncel üretim ölçümü yok."
+            : "Son 30 saniyedeki üretim ölçümü";
+        element("net-power").textContent = formatNumber(site.net_power_kw) + " kW";
+        element("net-power-status").textContent = site.net_power_kw === null
+            ? "Net güç için güncel sayaç ölçümleri eksik."
+            : site.net_power_kw < 0 ? "Üretim fazlası" : "Tüketim eksi güneş üretimi";
+    }
+    if (siteTrend.value) renderTrend("site-power-trend", siteTrend.value.measurements, 30000);
+    else element("site-power-trend").textContent = "Tesis güç geçmişi alınamadı.";
+    if (site) {
+        renderHourly("site-hourly", "site-hourly-status", {
+            hours: site.hours,
+            total_consumption_kwh: site.consumption_kwh,
+            status: site.consumption_kwh === null ? "no_data" : "partial_data",
+        });
+    } else {
+        element("site-hourly").replaceChildren();
+        element("site-hourly-status").textContent = "Saatlik tesis verileri alınamadı.";
+    }
+    element("coverage-status").textContent = daily.value
+        ? `Veri kapsama oranı %${formatNumber(daily.value.coverage_percent, 2)}`
+        : "Tüketim verisi alınamadı.";
+
+    const timestamp = measurement ? new Date(measurement.timestamp) : null;
+    const age = timestamp ? Math.max(0, (Date.now() - timestamp.getTime()) / 1000) : null;
+    element("connection-status").textContent = latest.status === "rejected"
+        ? "API bağlantı hatası"
+        : age === null ? "Ölçüm yok"
+        : age <= 30 ? "Çevrimiçi" : age <= 60 ? "Veri gecikmesi" : "Veri gelmiyor";
+    element("last-measurement").textContent = timestamp?.toLocaleString("tr-TR") ?? "";
+
+    if (hourly.value) renderHourly("hourly-chart", "chart-status", hourly.value);
+    else {
+        element("hourly-chart").replaceChildren();
+        element("chart-status").textContent = "Saatlik tüketim verileri alınamadı.";
+    }
+    if (trend.value) renderTrend("power-trend", trend.value.measurements);
+    else element("power-trend").textContent = "Güç verileri alınamadı.";
+
+    if (loadTrend?.value) renderTrend("load-power", loadTrend.value.measurements);
+    else element("load-power").textContent = load ? "Yük verileri alınamadı." : "Bu sayaçta yük yok.";
+    if (loadHourly?.value) renderHourly("load-energy", "load-energy-status", loadHourly.value);
+    else {
+        element("load-energy").replaceChildren();
+        element("load-energy-status").textContent = load ? "Yük tüketimi alınamadı." : "";
+    }
+}
+
+async function selectMeter() {
+    selection?.abort();
+    refresh?.abort();
+    const { signal } = selection = new AbortController();
+    const meterId = meterSelect.value;
+    loadSelect.disabled = true;
+    element("load-controls").hidden = true;
+    element("load-details").hidden = true;
+    loadSelect.replaceChildren();
+    element("selection-status").textContent = "";
+    for (const id of ["load-power", "load-energy", "load-energy-status"]) {
+        element(id).replaceChildren();
+    }
+    const updateMeter = updateDashboard();
+    try {
+        const loads = await fetchData(`/api/v1/meters/${meterId}/loads`, signal);
+        if (signal.aborted) return;
+        for (const load of loads) loadSelect.add(new Option(load.name, load.id));
+        loadSelect.disabled = !loads.length;
+        element("load-controls").hidden = !loads.length;
+        element("load-details").hidden = !loads.length;
+    } catch (error) {
+        if (signal.aborted) return;
+        element("selection-status").textContent = "Yük listesi alınamadı.";
+    }
+    await updateMeter;
+    if (!signal.aborted && loadSelect.value) await updateDashboard();
+}
+
+async function init() {
+    try {
+        const meters = await fetchData("/api/v1/meters");
+        for (const meter of meters.filter(meter => meter.direction !== "generation")) {
+            const option = new Option(`${meter.name} (${meter.serial_number})`, meter.id);
+            option.dataset.siteId = meter.site_id;
+            meterSelect.add(option);
+        }
+        if (!meterSelect.options.length) {
+            element("selection-status").textContent = "Kayıtlı sayaç yok.";
+            return;
+        }
+        const firstMeter = meters.find(meter => meter.serial_number === "SIM-001");
+        if (firstMeter) meterSelect.value = firstMeter.id;
+        meterSelect.disabled = false;
+        await selectMeter();
+    } catch (error) {
+        element("selection-status").textContent = "Sayaç listesi alınamadı.";
+    }
+}
+
+const viewButtons = document.querySelectorAll(".tabs button");
+for (const button of viewButtons) {
+    button.addEventListener("click", () => {
+        for (const view of viewButtons) {
+            const selected = view === button;
+            view.setAttribute("aria-pressed", String(selected));
+            element(view.getAttribute("aria-controls")).hidden = !selected;
+        }
+    });
+}
+
+meterSelect.addEventListener("change", selectMeter);
+loadSelect.addEventListener("change", updateDashboard);
+daySelect.addEventListener("change", updateDashboard);
+init();
+setInterval(updateDashboard, 10000);
+</script>
+</body>
+</html>
